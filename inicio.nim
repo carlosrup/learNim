@@ -1,13 +1,12 @@
-import std/parsecsv
-import std/tables
+import std/[parsecsv, tables]
+import datamancer, strutils, times
 
-
-#[ type Entry = object
-    fuente*: string
-    fechaEncuesta*: string
-    grupo*: string
-    ali*: string
-    cantKg*: string ]#
+const 
+  carnes: string = "CARNES"
+  lacteos: string = "LACTEOS Y HUEVOS"
+  procesados: string = "PROCESADOS"
+  pescados: string = "PESCADOS"
+  granos: string = "GRANOS Y CEREALES"
 
 proc createTableFromCsv(csvPath: string): Table[string, seq[string]] =
   result = {"Fuente": newSeq[string](), "FechaEncuesta": newSeq[string](),
@@ -28,11 +27,47 @@ proc createTableFromCsv(csvPath: string): Table[string, seq[string]] =
     result["Grupo"].add(parser.rowEntry("Grupo"))
     result["Ali"].add(parser.rowEntry("Ali"))
     result["Cant Kg"].add(parser.rowEntry("Cant Kg"))
-    
 
-#[ var df = readCsv("base_Mdiciembre.csv", sep=';') ]#
+let 
+  csvTable = createTableFromCsv("base_Mdiciembre.csv")
+  fuenteSeq = csvTable["Fuente"]
+  fechaSeq = csvTable["FechaEncuesta"]
+  grupoSeq = csvTable["Grupo"]
+  aliSeq = csvTable["Ali"]
+  cantKgSeq = csvTable["Cant Kg"]
 
-#[ let data= "Armenia, Mercar;1/12/2021;10:25;PICK UP;ARK791;null;'63;QUIND�O;'63470;MONTENEGRO;null;null;;TUBERCULOS, RAICES Y PLATANOS;Pl�tano hart�n verde;150;RACIMO;12;1800;EMTABARESP" ]#
+let df = seqsToDf({
+  "Fuente": fuenteSeq,
+  "FechaEncuesta": fechaSeq,
+  "Grupo": grupoSeq,
+  "Ali": aliSeq, 
+  "Cant Kg": cantKgSeq
+}).mutate(f{string -> float: "Cant Kg" ~ (idx("Cant Kg").replace(",",".")).parseFloat})
+
+let timeFormat = initTimeFormat("d/M/yyyy")
+
+let df1 = df.mutate(f{string -> TimeFormat: "Fecha" ~ (idx("FechaEncuesta")).parse(timeFormat).format(timeFormat)})
+
+let dfFuente = df.group_by("Fuente").mutate(f{float: "CantXfuente" << sum(col("Cant Kg"))})
+
+let dfGrupo =  df.group_by("Grupo").mutate(f{float: "CantXgrupo" << sum(col("Cant Kg"))})
+
+let dfOtrosGrupos =  df.mutate(
+  f{string: "Otros Grupos" ~ (
+    idx("Grupo").multiReplace(
+      (carnes, "OTROS GRUPOS"), 
+      (lacteos, "OTROS GRUPOS"),
+      (procesados, "OTROS GRUPOS"), 
+      (pescados, "OTROS GRUPOS"),
+      (granos, "OTROS GRUPOS"),
+
+    )
+  )}
+)
+let dfTotalPorGrupos = dfOtrosGrupos.group_by(
+  "Otros Grupos").mutate(
+    f{float: "TotalXGrupo" << sum(col("Cant Kg"))})
 
 
-echo createTableFromCsv("base_Mdiciembre.csv")
+let totalXfuente =  dfFuente.unique("CantXfuente").pretty(precision= 10)
+
